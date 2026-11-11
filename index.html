@@ -396,7 +396,7 @@
   async function nominatim(lat, lon, r, kw) {
     const dLat = r / 111320, dLon = r / (111320 * Math.cos(lat * Math.PI / 180));
     const vb = [lon - dLon, lat + dLat, lon + dLon, lat - dLat].map(x => x.toFixed(6)).join(',');
-    const qs = (kw ? keywordAlts(kw) : ['飲料店', '茶飲']).slice(0, 2);
+    const qs = (kw ? keywordAlts(kw) : ['飲料', '茶']).slice(0, 2);
     const seen = new Set(), elements = [];
     let ok = false, lastErr;
     for (let i = 0; i < qs.length; i++) {
@@ -449,8 +449,21 @@
   }
 
   /* ---------- 主流程 ---------- */
+  // 依序等待多個查詢：回傳第一個「有找到店」的結果；都沒找到就回傳任一成功的（空）結果；全失敗回傳 null
+  function firstFound(promises) {
+    return new Promise(resolve => {
+      let left = promises.length, empty = null;
+      promises.forEach((p, i) => p.then(list => {
+        if (list && list.length) resolve({ list, from: i });
+        else if (list && !empty) empty = { list, from: i };
+      }).finally(() => { if (--left === 0) resolve(empty); }));
+    });
+  }
+  let searchId = 0;
+
   async function run() {
     if (state.busy) return;
+    const mySearch = ++searchId;
     const kw = cleanKw($('#kw').value);
     const startR = +($('input[name="r"]:checked').value);
     syncChips(kw);
@@ -472,21 +485,26 @@
         usedR = r;
         note = `正在搜尋 ${fmtRadius(r)} 範圍內${kw ? `的「${esc(kw)}」` : '的飲料店'}…`;
         setStatus(note, 'busy');
-        let elements = null;
-        if (Date.now() > opDownUntil) {
-          try {
-            elements = (await overpass(buildQuery(pos.lat, pos.lon, r, kw))).elements || [];
-          } catch (err) {
-            opDownUntil = Date.now() + 120000; // 兩分鐘內直接走備用
+        // 兩個資料來源同時查，誰先找到店就先顯示誰
+        const opP = Date.now() > opDownUntil
+          ? overpass(buildQuery(pos.lat, pos.lon, r, kw)).then(d => normalize(d.elements || [], pos, r))
+              .catch(() => { opDownUntil = Date.now() + 120000; return null; })
+          : Promise.resolve(null);
+        const nmP = nominatim(pos.lat, pos.lon, r, kw).then(el => normalize(el, pos, r)).catch(() => null);
+        const first = await firstFound([opP, nmP]);
+        if (first === null) throw new Error('暫時連不上店家資料庫，請檢查網路後再試一次。');
+        items = first.list;
+        if (items.length) {
+          // 先顯示的是備用結果時，等主資料庫回來若店家更多就自動補上
+          if (first.from === 1) {
+            opP.then(more => {
+              if (searchId !== mySearch || !more || more.length <= items.length) return;
+              state.items = more.slice(0, 30);
+              render(pos, kw, r, startR, more.length);
+            });
           }
+          break;
         }
-        if (elements === null) {
-          note = '店家資料庫忙碌，改用備用查詢…';
-          setStatus(note, 'busy');
-          elements = await nominatim(pos.lat, pos.lon, r, kw);
-        }
-        items = normalize(elements, pos, r);
-        if (items.length) break;
       }
       state.items = items.slice(0, 30);
       render(pos, kw, usedR, startR, items.length);
