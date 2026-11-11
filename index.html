@@ -258,8 +258,10 @@
   const ENDPOINTS = [
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
-    'https://overpass.private.coffee/api/interpreter'
+    'https://overpass.private.coffee/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
   ];
+  let opDownUntil = 0; // Overpass 無回應時，暫時跳過它，直接走備用查詢
   const BRANDS = ['50嵐', '清心福全', '可不可', '迷客夏', '麻古茶坊', '大苑子', 'CoCo', '得正', '五桐號', '烏弄', '龜記', '茶湯會', '珍煮丹', '一沐日', 'COMEBUY'];
   // 同一品牌在地圖上可能有不同寫法
   const ALIAS = {
@@ -355,9 +357,9 @@
     if (kw) {
       const re = keywordAlts(kw).join('|');
       const keys = ['name', 'name:zh', 'brand', 'brand:zh'];
-      return `[out:json][timeout:15];(${keys.map(k => `nwr${ar}["${k}"~"${re}",i];`).join('')});out center tags 120;`;
+      return `[out:json][timeout:8];(${keys.map(k => `nwr${ar}["${k}"~"${re}",i];`).join('')});out center tags 120;`;
     }
-    return `[out:json][timeout:15];(
+    return `[out:json][timeout:8];(
       nwr${ar}["cuisine"~"bubble_tea|tea|juice|beverages|drinks"];
       nwr${ar}["shop"~"^(beverages|tea)$"];
       nwr${ar}["drink:bubble_tea"="yes"];
@@ -367,7 +369,7 @@
   // 三台伺服器同時查，誰先回來就用誰，其餘取消
   async function overpass(q) {
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 16000);
+    const timer = setTimeout(() => ctl.abort(), 9000);
     try {
       return await Promise.any(ENDPOINTS.map(async ep => {
         const r = await fetch(ep, {
@@ -387,6 +389,35 @@
       clearTimeout(timer);
       ctl.abort();
     }
+  }
+
+  // 備用：OpenStreetMap 的地名搜尋（Nominatim），轉成和 Overpass 相同的格式
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function nominatim(lat, lon, r, kw) {
+    const dLat = r / 111320, dLon = r / (111320 * Math.cos(lat * Math.PI / 180));
+    const vb = [lon - dLon, lat + dLat, lon + dLon, lat - dLat].map(x => x.toFixed(6)).join(',');
+    const qs = (kw ? keywordAlts(kw) : ['飲料店', '茶飲']).slice(0, 2);
+    const seen = new Set(), elements = [];
+    let ok = false, lastErr;
+    for (let i = 0; i < qs.length; i++) {
+      if (i) await sleep(1100); // Nominatim 規定每秒最多 1 次
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=${vb}&accept-language=zh-TW&q=${encodeURIComponent(qs[i])}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const list = await res.json();
+        ok = true;
+        for (const p of list) {
+          const key = p.osm_type + p.osm_id;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const parts = String(p.display_name || '').split(',').map(s => s.trim());
+          const addr = parts.slice(1).filter(s => s && !/^\d{3,6}$/.test(s) && !/^(臺灣|台灣)$/.test(s)).reverse().join('');
+          elements.push({ type: p.osm_type, id: p.osm_id, lat: +p.lat, lon: +p.lon, tags: { name: p.name || parts[0], 'addr:full': addr } });
+        }
+      } catch (e) { lastErr = e; }
+    }
+    if (!ok) throw lastErr || new Error('備用查詢失敗');
+    return elements;
   }
 
   function normalize(elements, pos, maxR = Infinity) {
@@ -441,8 +472,20 @@
         usedR = r;
         note = `正在搜尋 ${fmtRadius(r)} 範圍內${kw ? `的「${esc(kw)}」` : '的飲料店'}…`;
         setStatus(note, 'busy');
-        const data = await overpass(buildQuery(pos.lat, pos.lon, r, kw));
-        items = normalize(data.elements || [], pos, r);
+        let elements = null;
+        if (Date.now() > opDownUntil) {
+          try {
+            elements = (await overpass(buildQuery(pos.lat, pos.lon, r, kw))).elements || [];
+          } catch (err) {
+            opDownUntil = Date.now() + 120000; // 兩分鐘內直接走備用
+          }
+        }
+        if (elements === null) {
+          note = '店家資料庫忙碌，改用備用查詢…';
+          setStatus(note, 'busy');
+          elements = await nominatim(pos.lat, pos.lon, r, kw);
+        }
+        items = normalize(elements, pos, r);
         if (items.length) break;
       }
       state.items = items.slice(0, 30);
