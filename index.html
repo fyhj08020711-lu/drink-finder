@@ -149,6 +149,7 @@
   .dist small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
   .meta { grid-column: 2 / span 2; display: grid; gap: 2px; color: var(--muted); font-size: 13px; min-width: 0; }
   .meta div { overflow-wrap: anywhere; }
+  .tel { color: var(--accent); font-weight: 700; text-decoration: none; font-variant-numeric: tabular-nums; }
   .tag { display: inline-block; background: var(--chip); color: var(--muted); border-radius: 6px; padding: 0 7px; font-size: 12px; margin-right: 6px; }
   .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
   .btn {
@@ -402,7 +403,7 @@
     for (let i = 0; i < qs.length; i++) {
       if (i) await sleep(1100); // Nominatim 規定每秒最多 1 次
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&viewbox=${vb}&accept-language=zh-TW&q=${encodeURIComponent(qs[i])}`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&extratags=1&viewbox=${vb}&accept-language=zh-TW&q=${encodeURIComponent(qs[i])}`);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const list = await res.json();
         ok = true;
@@ -412,7 +413,7 @@
           seen.add(key);
           const parts = String(p.display_name || '').split(',').map(s => s.trim());
           const addr = parts.slice(1).filter(s => s && !/^\d{3,6}$/.test(s) && !/^(臺灣|台灣)$/.test(s)).reverse().join('');
-          elements.push({ type: p.osm_type, id: p.osm_id, lat: +p.lat, lon: +p.lon, tags: { name: p.name || parts[0], 'addr:full': addr } });
+          elements.push({ type: p.osm_type, id: p.osm_id, lat: +p.lat, lon: +p.lon, tags: { name: p.name || parts[0], 'addr:full': addr, phone: (p.extratags && (p.extratags.phone || p.extratags['contact:phone'] || p.extratags['contact:mobile'])) || '' } });
         }
       } catch (e) { lastErr = e; }
     }
@@ -519,6 +520,10 @@
     }
   }
 
+  // 電話：OSM 可能一次存多支（用 ; 分隔），只取第一支；撥號連結只留數字和 +
+  const firstPhone = s => String(s).split(/[;,]/)[0].trim();
+  const telHref = s => firstPhone(s).replace(/[^\d+]/g, '');
+
   /* ---------- 顯示結果 ---------- */
   function render(pos, kw, usedR, startR, total) {
     const list = $('#list');
@@ -543,10 +548,11 @@
           ${it.brand ? `<div><span class="tag">${esc(it.brand)}</span></div>` : ''}
           ${it.addr ? `<div>${esc(it.addr)}</div>` : ''}
           ${it.hours ? `<div>營業 ${esc(it.hours.length > 70 ? it.hours.slice(0, 70) + '…' : it.hours)}</div>` : ''}
-          ${it.phone ? `<div>${esc(it.phone)}</div>` : ''}
+          ${it.phone ? `<div>電話 <a class="tel" href="tel:${esc(telHref(it.phone))}">${esc(firstPhone(it.phone))}</a></div>` : ''}
         </div>
         <div class="acts">
           <a class="btn main" href="${nav}" target="_blank" rel="noopener">導航前往</a>
+          ${it.phone ? `<a class="btn" href="tel:${esc(telHref(it.phone))}">打電話</a>` : ''}
           <button class="btn" type="button" data-focus="${i}">在地圖上看</button>
           ${/^https?:\/\//i.test(it.web) ? `<a class="btn" href="${esc(it.web)}" target="_blank" rel="noopener">網站</a>` : ''}
         </div>

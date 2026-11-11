@@ -146,6 +146,7 @@
   .dist small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
   .meta { grid-column: 2 / span 2; display: grid; gap: 2px; color: var(--muted); font-size: 13px; min-width: 0; }
   .meta div { overflow-wrap: anywhere; }
+  .tel { color: var(--accent); font-weight: 700; text-decoration: none; font-variant-numeric: tabular-nums; }
   .tag { display: inline-block; background: var(--chip); color: var(--muted); border-radius: 6px; padding: 0 7px; font-size: 12px; margin-right: 6px; }
   .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
   .btn {
@@ -362,7 +363,7 @@
     const { Place, SearchByTextRankPreference } = PlacesLib;
     const { places } = await Place.searchByText({
       textQuery: kw || '手搖飲料店',
-      fields: ['id', 'displayName', 'location', 'formattedAddress', 'googleMapsURI', 'businessStatus'],
+      fields: ['id', 'displayName', 'location', 'formattedAddress', 'googleMapsURI', 'businessStatus', 'nationalPhoneNumber'],
       locationBias: { center: { lat: pos.lat, lng: pos.lon }, radius: 5000 },
       rankPreference: SearchByTextRankPreference.DISTANCE,
       maxResultCount: 20,
@@ -380,6 +381,7 @@
           dist: hav(pos.lat, pos.lon, lat, lon),
           addr: (p.formattedAddress || '').replace(/^台灣\s*/, '').replace(/^\d{3,6}\s*/, ''),
           url: p.googleMapsURI || '',
+          phone: p.nationalPhoneNumber || '',
           paused: p.businessStatus === 'CLOSED_TEMPORARILY'
         };
       })
@@ -435,9 +437,11 @@
         <div class="meta">
           ${it.paused ? '<div><span class="tag">暫停營業</span></div>' : ''}
           ${it.addr ? `<div>${esc(it.addr)}</div>` : ''}
+          ${it.phone ? `<div>電話 <a class="tel" href="tel:${esc(it.phone.replace(/[^\d+]/g, ''))}">${esc(it.phone)}</a></div>` : ''}
         </div>
         <div class="acts">
           <a class="btn main" href="${nav}" target="_blank" rel="noopener">導航前往</a>
+          ${it.phone ? `<a class="btn" href="tel:${esc(it.phone.replace(/[^\d+]/g, ''))}">打電話</a>` : ''}
           <button class="btn" type="button" data-focus="${i}">在地圖上看</button>
           ${/^https:\/\/(www\.)?google\.com\/maps/i.test(it.url) || /^https:\/\/maps\.google\.com/i.test(it.url) ? `<a class="btn" href="${esc(it.url)}" target="_blank" rel="noopener">營業時間與評價</a>` : ''}
         </div>
