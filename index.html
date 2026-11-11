@@ -349,10 +349,12 @@
   const cleanKw = s => s.replace(/[\\"^$.*+?()[\]{}|]/g, ' ').replace(/\s+/g, ' ').trim();
 
   function buildQuery(lat, lon, r, kw) {
-    const ar = `(around:${r},${lat},${lon})`;
+    // 用矩形範圍查詢，比圓形（around）快很多；精確距離在下面 normalize 再過濾
+    const dLat = r / 111320, dLon = r / (111320 * Math.cos(lat * Math.PI / 180));
+    const ar = `(${(lat - dLat).toFixed(6)},${(lon - dLon).toFixed(6)},${(lat + dLat).toFixed(6)},${(lon + dLon).toFixed(6)})`;
     if (kw) {
       const re = keywordAlts(kw).join('|');
-      const keys = ['name', 'name:zh', 'brand', 'brand:zh', 'operator', 'alt_name'];
+      const keys = ['name', 'name:zh', 'brand', 'brand:zh'];
       return `[out:json][timeout:15];(${keys.map(k => `nwr${ar}["${k}"~"${re}",i];`).join('')});out center tags 120;`;
     }
     return `[out:json][timeout:15];(
@@ -387,12 +389,13 @@
     }
   }
 
-  function normalize(elements, pos) {
+  function normalize(elements, pos, maxR = Infinity) {
     const out = [];
     for (const el of elements) {
       const t = el.tags || {};
       const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon;
       if (lat == null || lon == null) continue;
+      if (hav(pos.lat, pos.lon, lat, lon) > maxR) continue;
       const name = t['name:zh'] || t.name || t['brand:zh'] || t.brand || '';
       if (!name) continue;
       const addr = t['addr:full'] || [t['addr:city'], t['addr:district'], t['addr:street'], t['addr:housenumber'] ? t['addr:housenumber'] + '號' : ''].filter(Boolean).join('');
@@ -422,6 +425,13 @@
     syncChips(kw);
     setBusy(true);
     $('#list').innerHTML = '';
+    // 等超過幾秒就顯示已等待時間，讓人知道沒有當掉
+    const t0 = Date.now();
+    let note = '';
+    const tick = setInterval(() => {
+      const s = Math.round((Date.now() - t0) / 1000);
+      if (note && s >= 4) setStatus(`${note}（已等待 ${s} 秒）`, 'busy');
+    }, 1000);
     try {
       const pos = await resolvePos();
       // 少跑幾輪：找不到就直接跳到較大的範圍
@@ -429,19 +439,21 @@
       let items = [], usedR = startR;
       for (const r of ladder) {
         usedR = r;
-        setStatus(`正在搜尋 ${fmtRadius(r)} 範圍內${kw ? `的「${esc(kw)}」` : '的飲料店'}…`, 'busy');
+        note = `正在搜尋 ${fmtRadius(r)} 範圍內${kw ? `的「${esc(kw)}」` : '的飲料店'}…`;
+        setStatus(note, 'busy');
         const data = await overpass(buildQuery(pos.lat, pos.lon, r, kw));
-        items = normalize(data.elements || [], pos);
+        items = normalize(data.elements || [], pos, r);
         if (items.length) break;
       }
       state.items = items.slice(0, 30);
       render(pos, kw, usedR, startR, items.length);
     } catch (e) {
-      const msg = e && e.name === 'AbortError' ? '資料伺服器回應太慢，請稍後再試。'
+      const msg = e && e.name === 'AbortError' ? '資料伺服器太忙，等太久了。請再按一次「搜尋」，通常第二次會快很多。'
         : (e && e.message && !/HTTP|Failed to fetch|NetworkError|Load failed/i.test(e.message)) ? e.message
         : '暫時連不上店家資料庫，請檢查網路後再試一次。';
       setStatus(esc(msg), 'err');
     } finally {
+      clearInterval(tick);
       setBusy(false);
     }
   }

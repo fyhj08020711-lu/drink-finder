@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>手搖雷達 Google 版</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  /* Layout: 手機單欄（搜尋 → 地圖 → 清單）；桌機左欄搜尋與清單、右欄固定地圖 */
+  :root {
+    --bg: #F1F5F3;
+    --surface: #FFFFFF;
+    --ink: #13211C;
+    --muted: #596A63;
+    --line: #D8E1DC;
+    --chip: #E4EDE8;
+    --accent: #0B7A5E;
+    --accent-ink: #FFFFFF;
+    --hot: #F2B33D;
+    --hot-ink: #3A2800;
+    --danger: #B3261E;
+    --me: #2F6BFF;
+    --font: "Noto Sans TC", system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0D1512;
+      --surface: #16211D;
+      --ink: #E8F1ED;
+      --muted: #94A69E;
+      --line: #27352F;
+      --chip: #1E2C27;
+      --accent: #3CC9A0;
+      --accent-ink: #06231A;
+      --danger: #FF8A80;
+      --me: #6C95FF;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0D1512;
+    --surface: #16211D;
+    --ink: #E8F1ED;
+    --muted: #94A69E;
+    --line: #27352F;
+    --chip: #1E2C27;
+    --accent: #3CC9A0;
+    --accent-ink: #06231A;
+    --danger: #FF8A80;
+    --me: #6C95FF;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 15px/1.55 var(--font);
+    padding-block: max(16px, env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  .app {
+    max-width: 1120px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .head { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 40px; height: 40px; flex: none; border-radius: 12px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
+  .head h1 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: .02em; line-height: 1.2; }
+  .head p { margin: 0; color: var(--muted); font-size: 13px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 12px; }
+  .fields { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+  .field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .06em; margin-bottom: 4px; }
+  .input-row { display: flex; gap: 8px; }
+  .input {
+    flex: 1; min-width: 0; height: 44px; padding: 0 12px;
+    border: 1.5px solid var(--line); border-radius: 12px; background: var(--bg);
+  }
+  .input::placeholder { color: var(--muted); opacity: .8; }
+  .input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .icon-btn {
+    flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid var(--line);
+    background: var(--bg); display: grid; place-items: center; cursor: pointer; color: var(--accent);
+  }
+  .icon-btn:hover { border-color: var(--accent); }
+
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .seg { margin: 0; padding: 3px; border: 0; background: var(--chip); border-radius: 12px; display: inline-flex; gap: 2px; }
+  .seg label { position: relative; }
+  .seg input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+  .seg span { display: block; padding: 6px 11px; border-radius: 9px; font-size: 13px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+  .seg input:checked + span { background: var(--surface); color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgb(0 0 0 / .15); }
+  .seg input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 1px; }
+
+  .go {
+    margin-left: auto; height: 44px; padding: 0 20px; border: 0; border-radius: 12px; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink); font-weight: 700; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .go:hover { filter: brightness(1.08); }
+  .go[disabled] { opacity: .6; cursor: progress; }
+
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+  .chip {
+    flex: none; border: 0; background: var(--chip); color: var(--ink); border-radius: 999px;
+    padding: 5px 12px; font-size: 13px; cursor: pointer;
+  }
+  .chip:hover { background: color-mix(in srgb, var(--accent) 18%, var(--chip)); }
+  .chip.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+  .status { min-height: 22px; font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .status.err { color: var(--danger); }
+  .status b { color: var(--ink); }
+  .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .mapbox { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--chip); }
+  #map { height: 280px; width: 100%; }
+
+  .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .card {
+    background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px; padding: 12px;
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; cursor: pointer;
+  }
+  .card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  .card.is-active { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .rank {
+    grid-row: 1 / span 2; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+    font-weight: 700; font-size: 14px; display: grid; place-items: center; margin-top: 2px;
+  }
+  .card:first-child .rank { background: var(--hot); color: var(--hot-ink); }
+  .name { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+  .dist { text-align: right; font-weight: 900; font-size: 18px; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dist small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); }
+  .meta { grid-column: 2 / span 2; display: grid; gap: 2px; color: var(--muted); font-size: 13px; min-width: 0; }
+  .meta div { overflow-wrap: anywhere; }
+  .tag { display: inline-block; background: var(--chip); color: var(--muted); border-radius: 6px; padding: 0 7px; font-size: 12px; margin-right: 6px; }
+  .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 10px;
+    border: 1.5px solid var(--line); background: transparent; font-size: 13px; font-weight: 500; text-decoration: none; cursor: pointer; color: var(--ink);
+  }
+  .btn.main { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+  .btn:hover { border-color: var(--accent); }
+
+  .empty { background: var(--surface); border: 1.5px dashed var(--line); border-radius: 14px; padding: 22px 16px; color: var(--muted); text-align: center; }
+  .empty strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+
+  .foot { color: var(--muted); font-size: 12px; line-height: 1.6; }
+  .foot a { color: inherit; }
+
+  /* 地圖標記 */
+  .pin {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+    border: 2.5px solid #fff; box-shadow: 0 2px 6px rgb(0 0 0 / .35); display: grid; place-items: center;
+    font: 700 12px/1 var(--font); transition: transform .12s;
+  }
+  .pin.first { background: var(--hot); color: var(--hot-ink); }
+  .pin.active { transform: scale(1.3); outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+  .me { width: 18px; height: 18px; border-radius: 50%; background: var(--me); border: 3px solid #fff; box-shadow: 0 0 0 5px color-mix(in srgb, var(--me) 28%, transparent); }
+
+  @media (min-width: 900px) {
+    .app {
+      grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+      grid-template-areas: "head map" "panel map" "status map" "list map" "foot map";
+      grid-template-rows: auto auto auto auto 1fr;
+      column-gap: 22px;
+    }
+    .head { grid-area: head; }
+    .panel { grid-area: panel; }
+    .status { grid-area: status; }
+    .list { grid-area: list; }
+    .foot { grid-area: foot; }
+    .mapbox { grid-area: map; position: sticky; top: 16px; align-self: start; height: calc(100vh - 32px); }
+    #map { height: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2s; } .pin { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="head">
+    <div class="logo" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8h10l-1.2 11.2a2 2 0 0 1-2 1.8h-3.6a2 2 0 0 1-2-1.8L7 8z"/><path d="M6 8h12"/><path d="M12 8V3l3-1"/><circle cx="10.5" cy="17" r=".6" fill="currentColor"/><circle cx="13.5" cy="16" r=".6" fill="currentColor"/><circle cx="12" cy="18.5" r=".6" fill="currentColor"/></svg>
+    </div>
+    <div>
+      <h1>手搖雷達</h1>
+      <p>用你的位置或店名，找最近的一杯</p>
+    </div>
+  </header>
+
+  <form class="panel" id="form" autocomplete="off">
+    <div class="fields">
+      <div class="field">
+        <label for="kw">店名或關鍵字（可留空）</label>
+        <input class="input" id="kw" type="search" placeholder="例如：50嵐、清心、可不可、紅茶" enterkeyhint="search">
+      </div>
+      <div class="field">
+        <label for="place">地點（留空＝我的位置）</label>
+        <div class="input-row">
+          <input class="input" id="place" type="text" placeholder="輸入地址、車站或地標，例如：台北車站" enterkeyhint="search">
+          <button class="icon-btn" type="button" id="locate" aria-label="使用我目前的位置" title="使用我目前的位置">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <fieldset class="seg" aria-label="搜尋範圍">
+        <legend class="sr">搜尋範圍</legend>
+        <label><input type="radio" name="r" value="500"><span>500 公尺</span></label>
+        <label><input type="radio" name="r" value="1000" checked><span>1 公里</span></label>
+        <label><input type="radio" name="r" value="2000"><span>2 公里</span></label>
+        <label><input type="radio" name="r" value="5000"><span>5 公里</span></label>
+      </fieldset>
+      <button class="go" type="submit" id="go">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        搜尋
+      </button>
+    </div>
+    <div class="chips" id="chips" role="group" aria-label="常見飲料品牌"></div>
+  </form>
+
+  <div class="status" id="status" role="status" aria-live="polite">按「搜尋」會使用你的位置，找出最近的飲料店。</div>
+
+  <section class="mapbox" id="mapbox" aria-label="地圖">
+    <div id="map"></div>
+  </section>
+
+  <ol class="list" id="list"></ol>
+
+  <p class="foot">
+    店家與地圖資料來自 Google 地圖。營業時間與評價請點各店的「營業時間與評價」查看最新資訊。定位功能需在 https 網址或 localhost 下使用。
+  </p>
+</div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+  // Google Maps 金鑰：請在 Google Cloud 把這把金鑰限制為「HTTP 參照網址」
+  // https://fyhj08020711-lu.github.io/* ，並只開放 Maps JavaScript API 與 Places API (New)
+  const GMAPS_KEY = 'AIzaSyAfdkBzgxSWCzG45MLL6gKA5yqxXZifji8';
+
+  const BRANDS = ['50嵐', '清心福全', '可不可', '迷客夏', '麻古茶坊', '大苑子', 'CoCo', '得正', '五桐號', '烏弄', '龜記', '茶湯會', '珍煮丹', '一沐日', 'COMEBUY'];
+  const state = { pos: null, fromGps: false, geoText: '', items: [], markers: [], active: -1, busy: false };
+  let map = null, PlacesLib = null, AdvMarker = null, userMarker = null;
+
+  /* ---------- 工具 ---------- */
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtDist = m => m < 1000 ? `${Math.max(10, Math.round(m / 10) * 10)} 公尺` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} 公里`;
+  const fmtRadius = m => m < 1000 ? `${m} 公尺` : `${m / 1000} 公里`;
+  function hav(a, b, c, d) {
+    const R = 6371000, t = x => x * Math.PI / 180;
+    const dLa = t(c - a), dLo = t(d - b);
+    const h = Math.sin(dLa / 2) ** 2 + Math.cos(t(a)) * Math.cos(t(c)) * Math.sin(dLo / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  function setStatus(html, kind) {
+    const el = $('#status');
+    el.className = 'status' + (kind === 'err' ? ' err' : '');
+    el.innerHTML = (kind === 'busy' ? '<span class="spin" aria-hidden="true"></span>' : '') + `<span>${html}</span>`;
+  }
+  function setBusy(b) {
+    state.busy = b;
+    $('#go').disabled = b;
+    $('#locate').disabled = b;
+  }
+
+  /* ---------- 載入 Google 地圖 ---------- */
+  window.gm_authFailure = () => {
+    setStatus('Google 地圖金鑰被拒絕。請到 Google Cloud 確認：已啟用 Maps JavaScript API 與 Places API (New)、已開啟計費，且金鑰的網站限制包含 https://fyhj08020711-lu.github.io/*', 'err');
+  };
+  function loadGoogle() {
+    return new Promise((resolve, reject) => {
+      if (window.google && window.google.maps) return resolve();
+      window.__gmReady = resolve;
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GMAPS_KEY)}&loading=async&language=zh-TW&region=TW&callback=__gmReady`;
+      s.async = true;
+      s.onerror = () => reject(new Error('無法載入 Google 地圖，請檢查網路。'));
+      document.head.appendChild(s);
+    });
+  }
+  async function initMap() {
+    try {
+      await loadGoogle();
+      const { Map } = await google.maps.importLibrary('maps');
+      const mk = await google.maps.importLibrary('marker');
+      AdvMarker = mk.AdvancedMarkerElement;
+      PlacesLib = await google.maps.importLibrary('places');
+      map = new Map($('#map'), {
+        center: { lat: 25.0478, lng: 121.5170 }, zoom: 14, mapId: 'DEMO_MAP_ID',
+        streetViewControl: false, mapTypeControl: false, fullscreenControl: false
+      });
+    } catch (e) {
+      $('#mapbox').hidden = true;
+      setStatus(esc(e && e.message ? e.message : 'Google 地圖載入失敗'), 'err');
+    }
+  }
+  const mapReady = initMap();
+
+  /* ---------- 定位與地點查詢 ---------- */
+  function locate() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) return reject(new Error('這個瀏覽器不支援定位，請改輸入地點。'));
+      navigator.geolocation.getCurrentPosition(
+        p => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, label: '你的位置' }),
+        e => {
+          const msg = e.code === 1 ? '沒有取得定位權限。請在瀏覽器允許定位，或直接在「地點」輸入地址。'
+            : e.code === 3 ? '定位逾時，請到訊號較好的地方重試，或輸入地點。'
+            : '無法取得目前位置，請改輸入地點。';
+          reject(new Error(msg));
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+      );
+    });
+  }
+  async function geocode(text) {
+    await mapReady;
+    if (!PlacesLib) throw new Error('Google 地圖尚未載入完成，請稍後再試。');
+    const { places } = await PlacesLib.Place.searchByText({
+      textQuery: text, fields: ['location', 'displayName'], maxResultCount: 1, language: 'zh-TW', region: 'tw'
+    });
+    if (!places.length || !places[0].location) throw new Error(`找不到「${text}」這個地點，換個寫法試試（例如加上縣市或路名）。`);
+    const l = places[0].location;
+    return { lat: l.lat(), lon: l.lng(), acc: 0, label: text };
+  }
+  async function resolvePos() {
+    const place = $('#place').value.trim();
+    if (place) {
+      if (state.pos && state.geoText === place && !state.fromGps) return state.pos;
+      setStatus(`正在定位「${esc(place)}」…`, 'busy');
+      const p = await geocode(place);
+      Object.assign(state, { pos: p, fromGps: false, geoText: place });
+      return p;
+    }
+    if (state.pos && state.fromGps) return state.pos;
+    setStatus('正在取得你的位置…', 'busy');
+    const p = await locate();
+    Object.assign(state, { pos: p, fromGps: true, geoText: '' });
+    return p;
+  }
+
+  /* ---------- Google Places 搜尋 ---------- */
+  async function gSearch(pos, kw) {
+    await mapReady;
+    if (!PlacesLib) throw new Error('Google 地圖尚未載入完成，請稍後再試。');
+    const { Place, SearchByTextRankPreference } = PlacesLib;
+    const { places } = await Place.searchByText({
+      textQuery: kw || '手搖飲料店',
+      fields: ['id', 'displayName', 'location', 'formattedAddress', 'googleMapsURI', 'businessStatus'],
+      locationBias: { center: { lat: pos.lat, lng: pos.lon }, radius: 5000 },
+      rankPreference: SearchByTextRankPreference.DISTANCE,
+      maxResultCount: 20,
+      language: 'zh-TW', region: 'tw'
+    });
+    return places;
+  }
+  function normalize(places, pos) {
+    return places
+      .filter(p => p.location && p.businessStatus !== 'CLOSED_PERMANENTLY')
+      .map(p => {
+        const lat = p.location.lat(), lon = p.location.lng();
+        return {
+          id: p.id, name: p.displayName || '(未命名)', lat, lon,
+          dist: hav(pos.lat, pos.lon, lat, lon),
+          addr: (p.formattedAddress || '').replace(/^台灣\s*/, '').replace(/^\d{3,6}\s*/, ''),
+          url: p.googleMapsURI || '',
+          paused: p.businessStatus === 'CLOSED_TEMPORARILY'
+        };
+      })
+      .sort((a, b) => a.dist - b.dist);
+  }
+
+  /* ---------- 主流程 ---------- */
+  async function run() {
+    if (state.busy) return;
+    const kw = $('#kw').value.trim();
+    const startR = +($('input[name="r"]:checked').value);
+    syncChips(kw);
+    setBusy(true);
+    $('#list').innerHTML = '';
+    try {
+      const pos = await resolvePos();
+      setStatus(`正在搜尋${kw ? `「${esc(kw)}」` : '附近的飲料店'}…`, 'busy');
+      const all = normalize(await gSearch(pos, kw), pos);
+      const inR = all.filter(i => i.dist <= startR);
+      state.items = (inR.length ? inR : all).slice(0, 20);
+      render(pos, kw, startR, !inR.length && all.length > 0);
+    } catch (e) {
+      const raw = e && e.message ? e.message : '';
+      const msg = /PERMISSION_DENIED|API key|not enabled|has not been used|BILLING|403/i.test(raw)
+        ? 'Google 拒絕了這次查詢。請確認 Places API (New) 已啟用、已開啟計費，且金鑰的 API 限制有包含它。'
+        : (raw && !/Failed to fetch|NetworkError|Load failed/i.test(raw)) ? raw
+        : '暫時連不上 Google 地圖，請檢查網路後再試一次。';
+      setStatus(esc(msg), 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---------- 顯示結果 ---------- */
+  function render(pos, kw, startR, widened) {
+    const list = $('#list');
+    const where = pos.label === '你的位置' ? '你的位置' : `「${esc(pos.label)}」`;
+    if (!state.items.length) {
+      setStatus('', null);
+      list.innerHTML = `<li class="empty"><strong>${kw ? `找不到「${esc(kw)}」` : '附近沒有找到飲料店'}</strong>換個關鍵字或換個地點再試試。</li>`;
+      drawMap(pos, []);
+      return;
+    }
+    const first = state.items[0];
+    setStatus(`離${where}最近的${kw ? `「${esc(kw)}」` : '飲料店'}在 <b>${fmtDist(first.dist)}</b>，列出 ${state.items.length} 間${widened ? `（${fmtRadius(startR)}內沒有，已顯示最近的）` : ''}${pos.acc && pos.acc > 150 ? `。定位精度約 ±${Math.round(pos.acc)} 公尺` : ''}`, null);
+    list.innerHTML = state.items.map((it, i) => {
+      const walk = it.dist <= 2000 ? `步行約 ${Math.max(1, Math.ceil(it.dist / 75))} 分` : '';
+      const nav = `https://www.google.com/maps/dir/?api=1&destination=${it.lat},${it.lon}&destination_place_id=${encodeURIComponent(it.id)}&travelmode=${it.dist <= 2000 ? 'walking' : 'driving'}`;
+      return `<li class="card" data-i="${i}" tabindex="0">
+        <div class="rank">${i + 1}</div>
+        <h3 class="name">${esc(it.name)}</h3>
+        <div class="dist">${fmtDist(it.dist)}<small>${walk}</small></div>
+        <div class="meta">
+          ${it.paused ? '<div><span class="tag">暫停營業</span></div>' : ''}
+          ${it.addr ? `<div>${esc(it.addr)}</div>` : ''}
+        </div>
+        <div class="acts">
+          <a class="btn main" href="${nav}" target="_blank" rel="noopener">導航前往</a>
+          <button class="btn" type="button" data-focus="${i}">在地圖上看</button>
+          ${/^https:\/\/(www\.)?google\.com\/maps/i.test(it.url) || /^https:\/\/maps\.google\.com/i.test(it.url) ? `<a class="btn" href="${esc(it.url)}" target="_blank" rel="noopener">營業時間與評價</a>` : ''}
+        </div>
+      </li>`;
+    }).join('');
+    drawMap(pos, state.items);
+    select(0, false);
+  }
+
+  /* ---------- 地圖 ---------- */
+  function pinEl(i) {
+    const d = document.createElement('div');
+    d.className = 'pin' + (i === 0 ? ' first' : '');
+    d.textContent = i + 1;
+    return d;
+  }
+  function drawMap(pos, items) {
+    if (!map || !AdvMarker) return;
+    state.markers.forEach(m => { m.map = null; });
+    state.markers = [];
+    if (userMarker) userMarker.map = null;
+    const me = document.createElement('div');
+    me.className = 'me';
+    userMarker = new AdvMarker({ map, position: { lat: pos.lat, lng: pos.lon }, content: me, title: pos.label === '你的位置' ? '你在這裡' : pos.label });
+    items.forEach((it, i) => {
+      const m = new AdvMarker({ map, position: { lat: it.lat, lng: it.lon }, content: pinEl(i), title: it.name });
+      m.addListener('click', () => select(i, true));
+      state.markers.push(m);
+    });
+    if (!items.length) { map.setCenter({ lat: pos.lat, lng: pos.lon }); map.setZoom(15); return; }
+    const b = new google.maps.LatLngBounds();
+    b.extend({ lat: pos.lat, lng: pos.lon });
+    items.slice(0, 6).forEach(it => b.extend({ lat: it.lat, lng: it.lon }));
+    map.fitBounds(b, 40);
+  }
+  function select(i, fromMap) {
+    state.active = i;
+    $$('.card').forEach(c => c.classList.toggle('is-active', +c.dataset.i === i));
+    state.markers.forEach((m, j) => {
+      if (m.content) m.content.classList.toggle('active', j === i);
+      m.zIndex = j === i ? 1000 : null;
+    });
+    const it = state.items[i];
+    if (!it) return;
+    if (fromMap) {
+      const card = $(`.card[data-i="${i}"]`);
+      if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } else if (map && i !== 0) {
+      map.panTo({ lat: it.lat, lng: it.lon });
+      if (map.getZoom() < 16) map.setZoom(16);
+    }
+  }
+
+  /* ---------- 介面事件 ---------- */
+  function syncChips(kw) {
+    $$('.chip').forEach(c => c.classList.toggle('on', c.dataset.kw === kw));
+  }
+  function buildChips() {
+    const wrap = $('#chips');
+    wrap.innerHTML = ['全部', ...BRANDS].map(b => `<button type="button" class="chip" data-kw="${b === '全部' ? '' : esc(b)}">${esc(b)}</button>`).join('');
+    wrap.addEventListener('click', e => {
+      const c = e.target.closest('.chip');
+      if (!c) return;
+      $('#kw').value = c.dataset.kw;
+      run();
+    });
+  }
+
+  $('#form').addEventListener('submit', e => { e.preventDefault(); run(); });
+  $('#locate').addEventListener('click', () => {
+    $('#place').value = '';
+    Object.assign(state, { pos: null, fromGps: false, geoText: '' });
+    run();
+  });
+  $('#list').addEventListener('click', e => {
+    const focusBtn = e.target.closest('[data-focus]');
+    if (focusBtn) {
+      e.stopPropagation();
+      const i = +focusBtn.dataset.focus;
+      select(i, false);
+      if (map) {
+        map.panTo({ lat: state.items[i].lat, lng: state.items[i].lon });
+        map.setZoom(17);
+        $('#mapbox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+      return;
+    }
+    if (e.target.closest('a')) return;
+    const card = e.target.closest('.card');
+    if (card) select(+card.dataset.i, false);
+  });
+  $('#list').addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('card')) {
+      e.preventDefault();
+      select(+e.target.dataset.i, false);
+    }
+  });
+
+  buildChips();
+  syncChips('');
+})();
+</script>
+</body>
+</html>
